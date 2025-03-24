@@ -1,0 +1,133 @@
+services:
+  mysql:
+  # Notei que o gargalo e falhas estavam sendo no Mysql que demorava muito para inicializar e configurar. Isso estava corrompendo o banco de dados inviabilizando a instalação.
+    image: 'mysql:8.0.39-oracle'
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"   # Máximo de 2 CPUs
+          memory: "2G"  # Limite de 2GB de RAM
+        reservations:
+          cpus: "1.0"   # Garante pelo menos 1 CPU
+          memory: "1G"  # Reserva 1GB de RAM
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      - 'MYSQL_ROOT_PASSWORD=${SERVICE_PASSWORD_64_MYSQLROOT}'
+      - 'MYSQL_DATABASE=${MYSQL_DATABASE:-mautic}'
+      - 'MYSQL_USER=${SERVICE_USER_MYSQL}'
+      - 'MYSQL_PASSWORD=${SERVICE_PASSWORD_64_MYSQL}'
+      - 'MYSQL_ALLOW_EMPTY_PASSWORD=no'
+    command: [
+      "--default-authentication-plugin=caching_sha2_password",
+      "--innodb_buffer_pool_size=512M",
+      "--innodb_log_file_size=256M",
+      "--innodb_flush_log_at_trx_commit=2",
+      "--innodb_flush_method=O_DIRECT",
+      "--innodb_flush_neighbors=0",
+      "--innodb_log_buffer_size=64M",
+      "--max_connections=200",
+      "--skip-host-cache",
+      "--skip-name-resolve",
+      "--innodb_flush_neighbors=0",
+      "--performance-schema=0"
+    ]
+    volumes:
+      - type: tmpfs
+        target: /dev/shm
+      - 'mysql-data:/var/lib/mysql'
+      - 'mysql-conf:/etc/mysql/conf.d'
+      - 'mysql-init:/docker-entrypoint-initdb.d'
+    healthcheck:
+      test: "mysql --user=$$MYSQL_USER --password=$$MYSQL_PASSWORD --execute \"SHOW DATABASES;\" || exit 1"
+      start_period: 10m
+      start_interval: 2m
+      interval: 1m
+      timeout: 1m
+      retries: 10
+    restart: always
+  rabbitmq:
+    image: 'rabbitmq:3'
+    environment:
+      - 'RABBITMQ_DEFAULT_VHOST=${RABBITMQ_DEFAULT_VHOST:-mautic}'
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: 'rabbitmq-diagnostics -q ping'
+      interval: 5s
+      timeout: 30s
+      retries: 10
+    volumes:
+      - 'rabbitmq-data:/var/lib/rabbitmq'
+  mautic_web:
+    image: 'mautic/mautic:latest'
+    volumes:
+      - 'mautic_data:/var/www/html:z'
+    environment:
+      - SERVICE_FQDN_MAUTIC_80
+      - 'DOCKER_MAUTIC_LOAD_TEST_DATA=${MAUTIC_LOAD_TEST_DATA:-false}'
+      - 'DOCKER_MAUTIC_RUN_MIGRATIONS=${MAUTIC_RUN_MIGRATIONS:-false}'
+      - 'MAUTIC_DB_HOST=${MYSQL_HOST:-mysql}'
+      - 'MAUTIC_DB_PORT=${MYSQL_PORT:-3306}'
+      - 'MAUTIC_DB_DATABASE=${MYSQL_DATABASE:-mautic}'
+      - 'MAUTIC_DB_USER=${SERVICE_USER_MYSQL}'
+      - 'MAUTIC_DB_PASSWORD=${SERVICE_PASSWORD_64_MYSQL}'
+      - 'MAUTIC_MESSENGER_DSN_EMAIL=amqp://guest:guest@rabbitmq:5672/mautic/messages'
+      - 'MAUTIC_MESSENGER_DSN_HIT=amqp://guest:guest@rabbitmq:5672/mautic/messages'
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost']
+      interval: 15s
+      timeout: 10s
+      retries: 15
+    # ports:
+    #   - "8080:80"
+  mautic_cron:
+    image: 'mautic/mautic:latest'
+    volumes:
+      - 'mautic_data:/var/www/html:z'
+    environment:
+      - DOCKER_MAUTIC_ROLE=mautic_cron
+      - 'MAUTIC_DB_HOST=${MYSQL_HOST:-mysql}'
+      - 'MAUTIC_DB_PORT=${MYSQL_PORT:-3306}'
+      - 'MAUTIC_DB_DATABASE=${MYSQL_DATABASE:-mautic}'
+      - 'MAUTIC_DB_USER=${SERVICE_USER_MYSQL}'
+      - 'MAUTIC_DB_PASSWORD=${SERVICE_PASSWORD_64_MYSQL}'
+    depends_on:
+      mautic_web:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'exit 0']
+      interval: 5s
+      timeout: 10s
+      retries: 15
+  mautic_worker:
+    image: 'mautic/mautic:latest'
+    volumes:
+      - 'mautic_data:/var/www/html:z'
+    environment:
+      - DOCKER_MAUTIC_ROLE=mautic_worker
+      - 'MAUTIC_DB_HOST=${MYSQL_HOST:-mysql}'
+      - 'MAUTIC_DB_PORT=${MYSQL_PORT:-3306}'
+      - 'MAUTIC_DB_DATABASE=${MYSQL_DATABASE:-mautic}'
+      - 'MAUTIC_DB_USER=${SERVICE_USER_MYSQL}'
+      - 'MAUTIC_DB_PASSWORD=${SERVICE_PASSWORD_64_MYSQL}'
+    depends_on:
+      mautic_web:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'exit 0']
+      interval: 5s
+      timeout: 10s
+      retries: 15
+volumes:
+  mysql-data:
+  rabbitmq-data:
+  mautic_data:
