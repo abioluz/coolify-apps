@@ -28,6 +28,14 @@ services:
       - 'rabbitmq-data:/var/lib/rabbitmq'
   mautic_web:
     image: 'mautic/mautic:latest'
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"   # Máximo de 2 CPUs
+          memory: "2G"  # Limite de 2GB de RAM
+        reservations:
+          cpus: "1.0"   # Garante pelo menos 1 CPU
+          memory: "1G"  # Reserva 1GB de RAM
     volumes:
       - 'mautic_data/config:/var/www/html/config:z'
       - 'mautic_data/logs:/var/www/html/var/logs:z'
@@ -37,8 +45,8 @@ services:
       - 'mautic_data/vendor:/var/www/html/vendor:z'
       - 'mautic_data/bin:/var/www/html/bin:z'
       - 'mautic_data/cron:/opt/mautic/cron:z'
-      - 'mautic_data/cache:/var/www/html/var/cache:z'
-      - 'mautic_data/apache:/etc/apache2:z'
+      # - 'mautic_data/cache:/var/www/html/var/cache:z'
+      # - 'mautic_data/apache:/etc/apache2:z'
     environment:
       - SERVICE_FQDN_MAUTIC_80
       - 'DOCKER_MAUTIC_LOAD_TEST_DATA=${MAUTIC_LOAD_TEST_DATA:-false}'
